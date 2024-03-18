@@ -277,19 +277,20 @@ impl NavigatorBuilder {
     }
 
     pub fn build(self) -> Navigator {
-        let dev = I2cdev::new("/dev/i2c-4").unwrap();
+        let dev = I2cdev::new("/dev/i2c-3").unwrap();
         let address = pwm_Address::default();
         let pwm = Pca9685::new(dev, address).unwrap();
 
-        let dev = I2cdev::new("/dev/i2c-1").unwrap();
+        let dev = I2cdev::new("/dev/i2c-7").unwrap();
         let mag = Ak09915::new(dev);
 
-        let dev = I2cdev::new("/dev/i2c-1").unwrap();
+        let dev = I2cdev::new("/dev/i2c-7").unwrap();
         let address = adc_Address::default();
         let adc = Ads1x1x::new_ads1115(dev, address);
 
+
         let mut bmp = Bmp280Builder::new()
-            .path("/dev/i2c-1")
+            .path("/dev/i2c-7")
             .address(0x76)
             .build()
             .expect("Error: Failed to build BMP280 device");
@@ -299,7 +300,7 @@ impl NavigatorBuilder {
         // Clear RGB led strip before starting using it
         neopixel.clear();
 
-        let mut spi = Spidev::open("/dev/spidev1.0").expect("Error: Failed during setting up SPI");
+        let mut spi = Spidev::open("/dev/spidev2.0").expect("Error: Failed during setting up SPI");
         let options = SpidevOptions::new()
             .bits_per_word(8)
             .max_speed_hz(10_000_000)
