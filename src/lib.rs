@@ -207,7 +207,7 @@ impl Led {
 
         let led = Led {
             first: CdevPin::new(
-                chip.get_line(125).unwrap()
+                chip.get_line(106).unwrap()
                     .request(
                         LineRequestFlags::OUTPUT,
                         1,
