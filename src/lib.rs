@@ -205,33 +205,33 @@ impl Led {
     pub fn new() -> Led {
         let mut chip = Chip::new("/dev/gpiochip0").unwrap();
 
-        let mut led = Led {
+        let led = Led {
             first: CdevPin::new(
-                chip.get_line(24).unwrap()
+                chip.get_line(125).unwrap()
                     .request(
-                        LineRequestFlags::INPUT | LineRequestFlags::OUTPUT,
-                        0,
+                        LineRequestFlags::OUTPUT,
+                        1,
                         "led-first").unwrap()).unwrap(),
             second: CdevPin::new(
-                chip.get_line(25).unwrap()
+                chip.get_line(123).unwrap()
                     .request(
-                        LineRequestFlags::INPUT | LineRequestFlags::OUTPUT,
-                        0,
+                        LineRequestFlags::OUTPUT,
+                        1,
                         "led-second").unwrap()).unwrap(),
             third: CdevPin::new(
-                chip.get_line(11).unwrap()
+                chip.get_line(133).unwrap()
                     .request(
-                        LineRequestFlags::INPUT | LineRequestFlags::OUTPUT,
-                        0,
+                        LineRequestFlags::OUTPUT,
+                        1,
                         "led-third").unwrap()).unwrap(),
         };
 
-        for pin in led.as_mut_array().iter_mut() {
-            // pin.export().expect("Error: Error during led pins export");
-            Delay {}.delay_ms(30_u32);
-            pin.set_high()
-                .expect("Error: Setting led pins as output");
-        }
+        // for pin in led.as_mut_array().iter_mut() {
+        //     // pin.export().expect("Error: Error during led pins export");
+        //     Delay {}.delay_ms(30_u32);
+        //     pin.set_high()
+        //         .expect("Error: Setting led pins as output");
+        // }
         led
     }
 
@@ -327,7 +327,7 @@ impl NavigatorBuilder {
 
         //Define CS2 pin ICM-20602
         let cs_2 = CdevPin::new(
-            chip.get_line(16).unwrap()
+            chip.get_line(113).unwrap()
                 .request(LineRequestFlags::OUTPUT, 1, "imu-csn").unwrap()).unwrap();
         // cs_2.export().expect("Error: Error during CS2 export");
         Delay {}.delay_ms(30_u32);
@@ -336,7 +336,7 @@ impl NavigatorBuilder {
 
         //not using yet, define CS1 pin for MMC5983
         let _cs_1 = CdevPin::new(
-            chip.get_line(17).unwrap()
+            chip.get_line(112).unwrap()
                 .request(LineRequestFlags::OUTPUT, 1, "mag-csn").unwrap()).unwrap();
         // cs_1.export().expect("Error: Error during CS1 export");
         Delay {}.delay_ms(30_u32);
@@ -345,7 +345,7 @@ impl NavigatorBuilder {
 
         //Define pwm OE_Pin - PWM initialize disabled
         let oe_pin = CdevPin::new(
-            chip.get_line(26).unwrap()
+            chip.get_line(124).unwrap()
                 .request(LineRequestFlags::OUTPUT, 1, "pwm-oe").unwrap()).unwrap();
         // oe_pin.export().expect("Error: Error during oe_pin export");
         Delay {}.delay_ms(30_u32);
@@ -358,7 +358,7 @@ impl NavigatorBuilder {
         let led = Led::new();
 
         let leak = CdevPin::new(
-            chip.get_line(27).unwrap()
+            chip.get_line(122).unwrap()
                 .request(LineRequestFlags::INPUT, 0, "leak-input").unwrap()).unwrap();
 
         Navigator {
