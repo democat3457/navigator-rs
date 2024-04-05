@@ -12,16 +12,16 @@ keywords = ["BlueRobotics", "embedded", "navigator", "robotics", "ROV"]
 readme = "README.md"
 
 [dependencies]
-ads1x1x = "0.2.2"
-ak09915_rs= "0.2.0"
+ads1x1x = { path = "../ads1x1x-rs" }
+ak09915_rs = { path = "../AK09915-rs" }
 approx = "0.5.1"
 bmp280 = "0.4.0"
-embedded-hal = "0.2.7"
-icm20689 = "0.1.1"
-linux-embedded-hal = "0.3.2"
+embedded-hal = "1.0.0"
+icm20689 = { path = "../icm20689" }
+linux-embedded-hal = "0.4"
 log = "0.4.19"
 nb = "1.1.0"
-pwm-pca9685 = "0.3.1"
+pwm-pca9685 = { path = "../pwm-pca9685-rs" }
 sk6812_rpi = "0.1"
 
 [dev-dependencies]

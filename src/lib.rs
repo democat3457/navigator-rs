@@ -3,18 +3,15 @@
 #![doc = include_str!("../README.md")]
 
 use ads1x1x::{
-    ic::{Ads1115, Resolution16Bit},
-    interface::I2cInterface,
-    Ads1x1x, DynamicOneShot, SlaveAddr as adc_Address,
+    ic::{Ads1115, Resolution16Bit}, Ads1x1x, ChannelSelection, DynamicOneShot, SlaveAddr as adc_Address
 };
 use ak09915_rs::{Ak09915, Mode as mag_Mode};
 use bmp280::{Bmp280, Bmp280Builder};
-use embedded_hal::{digital::v2::InputPin, prelude::_embedded_hal_blocking_delay_DelayMs};
+use embedded_hal::{digital::InputPin, digital::OutputPin, delay::DelayNs};
 use icm20689::{self, AccelRange, Builder as imu_Builder, GyroRange, SpiInterface, ICM20689};
-use linux_embedded_hal::spidev::{self, SpidevOptions};
-use linux_embedded_hal::sysfs_gpio::Direction;
+use linux_embedded_hal::{gpio_cdev::{Chip, LineRequestFlags}, spidev::{self, SpidevOptions}};
 use linux_embedded_hal::I2cdev;
-use linux_embedded_hal::{Delay, Pin, Spidev};
+use linux_embedded_hal::{Delay, CdevPin, SpidevDevice as Spidev};
 use log::{info, warn};
 use nb::block;
 use pwm_pca9685::{Address as pwm_Address, Pca9685};
@@ -28,13 +25,13 @@ use std::{
 /// Navigator's default crystal clock for PWM, with a value of 24.5760 MHz
 const NAVIGATOR_PWM_XTAL_CLOCK_FREQ: f32 = 24_576_000.0;
 
-impl From<AdcChannel> for ads1x1x::ChannelSelection {
+impl From<AdcChannel> for ChannelSelection {
     fn from(channel: AdcChannel) -> Self {
         match channel {
-            AdcChannel::Ch0 => ads1x1x::ChannelSelection::SingleA0,
-            AdcChannel::Ch1 => ads1x1x::ChannelSelection::SingleA1,
-            AdcChannel::Ch2 => ads1x1x::ChannelSelection::SingleA2,
-            AdcChannel::Ch3 => ads1x1x::ChannelSelection::SingleA3,
+            AdcChannel::Ch0 => ChannelSelection::SingleA0,
+            AdcChannel::Ch1 => ChannelSelection::SingleA1,
+            AdcChannel::Ch2 => ChannelSelection::SingleA2,
+            AdcChannel::Ch3 => ChannelSelection::SingleA3,
         }
     }
 }
@@ -145,9 +142,9 @@ pub struct SensorData {
 ///
 /// All this components were abstracted to be used directly from navigator module.
 pub struct Led {
-    first: Pin,
-    second: Pin,
-    third: Pin,
+    first: CdevPin,
+    second: CdevPin,
+    third: CdevPin,
 }
 
 /// The `Navigator` struct contains various components used for navigator. It includes PWM control,
@@ -160,12 +157,12 @@ pub struct Led {
 pub struct Navigator {
     pwm: Pwm,
     bmp: Bmp280,
-    adc: Ads1x1x<I2cInterface<I2cdev>, Ads1115, Resolution16Bit, ads1x1x::mode::OneShot>,
-    imu: ICM20689<SpiInterface<Spidev, Pin>>,
+    adc: Ads1x1x<I2cdev, Ads1115, Resolution16Bit, ads1x1x::mode::OneShot>,
+    imu: ICM20689<SpiInterface<Spidev, CdevPin>>,
     mag: Ak09915<I2cdev>,
     led: Led,
     neopixel: Strip,
-    leak: Pin,
+    leak: CdevPin,
 }
 
 impl Deref for Pwm {
@@ -190,7 +187,7 @@ pub struct Pwm {
     /// * `oe_pin`: The `oe_pin` component is a pin that is used to enable or disable the output of the PWM
     /// signal. It is connected to the Output Enable (OE) pin of the PCA9685 PWM controller.
     /// The default initialization of the navigator sets oe_pin to a digital high state, which disables the PCA9685's PWM.
-    oe_pin: Pin,
+    oe_pin: CdevPin,
 }
 
 /// Build pattern structure
@@ -206,26 +203,43 @@ impl Default for Led {
 
 impl Led {
     pub fn new() -> Led {
+        let mut chip = Chip::new("/dev/gpiochip0").unwrap();
+
         let mut led = Led {
-            first: Pin::new(24),
-            second: Pin::new(25),
-            third: Pin::new(11),
+            first: CdevPin::new(
+                chip.get_line(24).unwrap()
+                    .request(
+                        LineRequestFlags::INPUT | LineRequestFlags::OUTPUT,
+                        0,
+                        "led-first").unwrap()).unwrap(),
+            second: CdevPin::new(
+                chip.get_line(25).unwrap()
+                    .request(
+                        LineRequestFlags::INPUT | LineRequestFlags::OUTPUT,
+                        0,
+                        "led-second").unwrap()).unwrap(),
+            third: CdevPin::new(
+                chip.get_line(11).unwrap()
+                    .request(
+                        LineRequestFlags::INPUT | LineRequestFlags::OUTPUT,
+                        0,
+                        "led-third").unwrap()).unwrap(),
         };
 
         for pin in led.as_mut_array().iter_mut() {
-            pin.export().expect("Error: Error during led pins export");
-            Delay {}.delay_ms(30_u16);
-            pin.set_direction(Direction::High)
+            // pin.export().expect("Error: Error during led pins export");
+            Delay {}.delay_ms(30_u32);
+            pin.set_high()
                 .expect("Error: Setting led pins as output");
         }
         led
     }
 
-    pub fn as_mut_array(&mut self) -> [&mut Pin; 3] {
+    pub fn as_mut_array(&mut self) -> [&mut CdevPin; 3] {
         [&mut self.first, &mut self.second, &mut self.third]
     }
 
-    pub fn select(&mut self, select: UserLed) -> &mut Pin {
+    pub fn select(&mut self, select: UserLed) -> &mut CdevPin {
         match select {
             UserLed::Led1 => &mut self.first,
             UserLed::Led2 => &mut self.second,
@@ -277,7 +291,7 @@ impl NavigatorBuilder {
     }
 
     pub fn build(self) -> Navigator {
-        let dev = I2cdev::new("/dev/i2c-3").unwrap();
+        let dev = I2cdev::new("/dev/i2c-5").unwrap();
         let address = pwm_Address::default();
         let pwm = Pca9685::new(dev, address).unwrap();
 
@@ -300,7 +314,7 @@ impl NavigatorBuilder {
         // Clear RGB led strip before starting using it
         neopixel.clear();
 
-        let mut spi = Spidev::open("/dev/spidev2.0").expect("Error: Failed during setting up SPI");
+        let mut spi = Spidev::open("/dev/spidev1.0").expect("Error: Failed during setting up SPI");
         let options = SpidevOptions::new()
             .bits_per_word(8)
             .max_speed_hz(10_000_000)
@@ -309,33 +323,43 @@ impl NavigatorBuilder {
         spi.configure(&options)
             .expect("Error: Failed to configure SPI");
 
+        let mut chip = Chip::new("/dev/gpiochip0").unwrap();
+
         //Define CS2 pin ICM-20602
-        let cs_2 = Pin::new(16);
-        cs_2.export().expect("Error: Error during CS2 export");
-        Delay {}.delay_ms(30_u16);
-        cs_2.set_direction(Direction::High)
-            .expect("Error: Setting CS2 pin as output");
+        let cs_2 = CdevPin::new(
+            chip.get_line(16).unwrap()
+                .request(LineRequestFlags::OUTPUT, 1, "imu-csn").unwrap()).unwrap();
+        // cs_2.export().expect("Error: Error during CS2 export");
+        Delay {}.delay_ms(30_u32);
+        // cs_2.set_high()
+        //     .expect("Error: Setting CS2 pin as output");
 
         //not using yet, define CS1 pin for MMC5983
-        let cs_1 = Pin::new(17);
-        cs_1.export().expect("Error: Error during CS1 export");
-        Delay {}.delay_ms(30_u16);
-        cs_1.set_direction(Direction::High)
-            .expect("Error: Setting CS2 pin as output");
+        let _cs_1 = CdevPin::new(
+            chip.get_line(17).unwrap()
+                .request(LineRequestFlags::OUTPUT, 1, "mag-csn").unwrap()).unwrap();
+        // cs_1.export().expect("Error: Error during CS1 export");
+        Delay {}.delay_ms(30_u32);
+        // cs_1.set_direction(Direction::High)
+        //     .expect("Error: Setting CS2 pin as output");
 
         //Define pwm OE_Pin - PWM initialize disabled
-        let oe_pin = Pin::new(26);
-        oe_pin.export().expect("Error: Error during oe_pin export");
-        Delay {}.delay_ms(30_u16);
-        oe_pin
-            .set_direction(Direction::High)
-            .expect("Error: Setting oe_pin pin as output");
+        let oe_pin = CdevPin::new(
+            chip.get_line(26).unwrap()
+                .request(LineRequestFlags::OUTPUT, 1, "pwm-oe").unwrap()).unwrap();
+        // oe_pin.export().expect("Error: Error during oe_pin export");
+        Delay {}.delay_ms(30_u32);
+        // oe_pin
+        //     .set_direction(Direction::High)
+        //     .expect("Error: Setting oe_pin pin as output");
 
         let imu = imu_Builder::new_spi(spi, cs_2);
 
         let led = Led::new();
 
-        let leak = Pin::new(27);
+        let leak = CdevPin::new(
+            chip.get_line(27).unwrap()
+                .request(LineRequestFlags::INPUT, 0, "leak-input").unwrap()).unwrap();
 
         Navigator {
             adc: (adc),
@@ -374,7 +398,7 @@ impl Navigator {
         self.imu.set_accel_range(AccelRange::Range_2g).unwrap();
         self.imu.set_gyro_range(GyroRange::Range_250dps).unwrap();
 
-        self.adc.reset_internal_driver_state();
+        // self.adc.reset_internal_driver_state();
         self.adc
             .set_full_scale_range(ads1x1x::FullScaleRange::Within4_096V)
             .unwrap();
@@ -391,13 +415,13 @@ impl Navigator {
 
         self.led.set_led_all(false);
 
-        self.leak
-            .export()
-            .expect("Error: Failed to export leak pin");
-        Delay {}.delay_ms(30_u16);
-        self.leak
-            .set_direction(Direction::In)
-            .expect("Error: Failed to set leak pin as input");
+        // self.leak
+        //     .export()
+        //     .expect("Error: Failed to export leak pin");
+        Delay {}.delay_ms(30_u32);
+        // self.leak
+        //     .set_direction(Direction::In)
+        //     .expect("Error: Failed to set leak pin as input");
     }
 
     pub fn self_test(&mut self) -> bool {
@@ -420,9 +444,9 @@ impl Navigator {
     /// Please check [`set_pwm_channel_value`](struct.Navigator.html#method.set_pwm_channel_value).
     pub fn set_pwm_enable(&mut self, state: bool) {
         if state {
-            self.pwm.oe_pin.set_direction(Direction::Low).unwrap();
+            self.pwm.oe_pin.set_low().unwrap();
         } else {
-            self.pwm.oe_pin.set_direction(Direction::High).unwrap();
+            self.pwm.oe_pin.set_high().unwrap();
         }
     }
 
@@ -994,6 +1018,10 @@ impl Navigator {
         }
     }
 
+    fn _read_channel<E, A: DynamicOneShot<Error = E>>(adc: &mut A, channel: ads1x1x::ChannelSelection) -> i16 {
+        block!(adc.read(channel)).unwrap_or(0)
+    }
+
     /// Reads the ADC based on ADS1115 of [`Navigator`].
     ///
     /// Measurements in \[V\]
@@ -1014,7 +1042,7 @@ impl Navigator {
     /// }
     pub fn read_adc(&mut self, channel: AdcChannel) -> f32 {
         let conversion_volts: f32 = 0.000_125; // According to data-sheet, LSB = 125 μV for ±4.096 scale register, navigator's default
-        block!(self.adc.read(channel.into())).unwrap() as f32 * conversion_volts
+        Self::_read_channel(&mut self.adc, channel.into()) as f32 * conversion_volts
     }
 
     /// Reads acceleration based on ICM20689 of [`Navigator`].
@@ -1098,7 +1126,7 @@ impl Navigator {
     ///     sleep(Duration::from_millis(1000));
     /// }
     /// ```
-    pub fn read_leak(&self) -> bool {
+    pub fn read_leak(&mut self) -> bool {
         self.leak
             .is_high()
             .expect("Failed to read state of leak pin")
