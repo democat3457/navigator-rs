@@ -213,7 +213,7 @@ impl Led {
                         1,
                         "led-first").unwrap()).unwrap(),
             second: CdevPin::new(
-                chip.get_line(123).unwrap()
+                chip.get_line(85).unwrap()
                     .request(
                         LineRequestFlags::OUTPUT,
                         1,
@@ -345,7 +345,7 @@ impl NavigatorBuilder {
 
         //Define pwm OE_Pin - PWM initialize disabled
         let oe_pin = CdevPin::new(
-            chip.get_line(124).unwrap()
+            chip.get_line(43).unwrap()
                 .request(LineRequestFlags::OUTPUT, 1, "pwm-oe").unwrap()).unwrap();
         // oe_pin.export().expect("Error: Error during oe_pin export");
         Delay {}.delay_ms(30_u32);
@@ -358,7 +358,7 @@ impl NavigatorBuilder {
         let led = Led::new();
 
         let leak = CdevPin::new(
-            chip.get_line(122).unwrap()
+            chip.get_line(50).unwrap()
                 .request(LineRequestFlags::INPUT, 0, "leak-input").unwrap()).unwrap();
 
         Navigator {
