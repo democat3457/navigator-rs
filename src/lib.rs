@@ -8,7 +8,7 @@ use ads1x1x::{
 use ak09915_rs::{Ak09915, Mode as mag_Mode};
 use bmp280::{Bmp280, Bmp280Builder};
 use embedded_hal::{digital::InputPin, digital::OutputPin, delay::DelayNs};
-use icm20689::{self, AccelRange, Builder as imu_Builder, GyroRange, SpiInterface, ICM20689};
+// use icm20689::{self, AccelRange, Builder as imu_Builder, GyroRange, SpiInterface, ICM20689};
 use linux_embedded_hal::{gpio_cdev::{Chip, LineRequestFlags}, spidev::{self, SpidevOptions}};
 use linux_embedded_hal::I2cdev;
 use linux_embedded_hal::{Delay, CdevPin, SpidevDevice as Spidev};
@@ -158,7 +158,7 @@ pub struct Navigator {
     pwm: Pwm,
     bmp: Bmp280,
     adc: Ads1x1x<I2cdev, Ads1115, Resolution16Bit, ads1x1x::mode::OneShot>,
-    imu: ICM20689<SpiInterface<Spidev, CdevPin>>,
+    // imu: ICM20689<SpiInterface<Spidev, CdevPin>>,
     mag: Ak09915<I2cdev>,
     led: Led,
     neopixel: Strip,
@@ -291,7 +291,7 @@ impl NavigatorBuilder {
     }
 
     pub fn build(self) -> Navigator {
-        let dev = I2cdev::new("/dev/i2c-5").unwrap();
+        let dev = I2cdev::new("/dev/i2c-1").unwrap();
         let address = pwm_Address::default();
         let pwm = Pca9685::new(dev, address).unwrap();
 
@@ -326,7 +326,7 @@ impl NavigatorBuilder {
         let mut chip = Chip::new("/dev/gpiochip0").unwrap();
 
         //Define CS2 pin ICM-20602
-        let cs_2 = CdevPin::new(
+        let _cs_2 = CdevPin::new(
             chip.get_line(113).unwrap()
                 .request(LineRequestFlags::OUTPUT, 1, "imu-csn").unwrap()).unwrap();
         // cs_2.export().expect("Error: Error during CS2 export");
@@ -353,7 +353,7 @@ impl NavigatorBuilder {
         //     .set_direction(Direction::High)
         //     .expect("Error: Setting oe_pin pin as output");
 
-        let imu = imu_Builder::new_spi(spi, cs_2);
+        // let imu = imu_Builder::new_spi(spi, cs_2);
 
         let led = Led::new();
 
@@ -366,7 +366,7 @@ impl NavigatorBuilder {
             bmp: (bmp),
             pwm: Pwm { pca: pwm, oe_pin },
             mag: (mag),
-            imu: (imu),
+            // imu: (imu),
             led: (led),
             neopixel: (neopixel),
             leak: (leak),
@@ -392,11 +392,11 @@ impl Navigator {
         self.mag.init().unwrap();
         self.mag.set_mode(mag_Mode::Cont200Hz).unwrap();
 
-        self.imu
-            .setup(&mut Delay {})
-            .expect("Error: Failed on IMU setup");
-        self.imu.set_accel_range(AccelRange::Range_2g).unwrap();
-        self.imu.set_gyro_range(GyroRange::Range_250dps).unwrap();
+        // self.imu
+        //     .setup(&mut Delay {})
+        //     .expect("Error: Failed on IMU setup");
+        // self.imu.set_accel_range(AccelRange::Range_2g).unwrap();
+        // self.imu.set_gyro_range(GyroRange::Range_250dps).unwrap();
 
         // self.adc.reset_internal_driver_state();
         self.adc
@@ -427,7 +427,7 @@ impl Navigator {
     pub fn self_test(&mut self) -> bool {
         //Check if the sensors are attached by it's IDs,
         //run self-test if they have.
-        self.imu.check_identity(&mut Delay {}).unwrap();
+        // self.imu.check_identity(&mut Delay {}).unwrap();
         self.mag
             .self_test()
             .expect("Error : Error on magnetometer during self-test")
@@ -1066,7 +1066,8 @@ impl Navigator {
     /// }
     /// ```
     pub fn read_accel(&mut self) -> AxisData {
-        let reading: [f32; 3] = self.imu.get_scaled_accel().unwrap();
+        // let reading: [f32; 3] = self.imu.get_scaled_accel().unwrap();
+        let reading: [f32; 3] = [0.0, 0.0, 0.0];
         // Change the axes to navigator's standard. Right-handed, Z-axis down (aeronautical frame, NED).
         // Obs.: ICM20602 sensor is measuring with inverted directions, not following data-sheet.
         //       Thus, with IC's placement only Z needs to be inverted.
@@ -1098,7 +1099,8 @@ impl Navigator {
     /// }
     /// ```
     pub fn read_gyro(&mut self) -> AxisData {
-        let reading: [f32; 3] = self.imu.get_scaled_gyro().unwrap();
+        // let reading: [f32; 3] = self.imu.get_scaled_gyro().unwrap();
+        let reading: [f32; 3] = [0.0, 0.0, 0.0];
         // Change the axes to navigator's standard. Right-handed, Z-axis down (aeronautical frame, NED).
         AxisData {
             x: reading[0] * -1.0,
