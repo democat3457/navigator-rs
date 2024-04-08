@@ -344,32 +344,21 @@ impl NavigatorBuilder {
         spi.configure(&options)
             .expect("Error: Failed to configure SPI");
 
-        // let mut chip = Chip::new("/dev/gpiochip0").unwrap();
-
         unsafe { jetgpio::gpioInitialise() };
 
         //Define CS2 pin ICM-20602
         let cs_2 = Pin::new(36, jetgpio::JET_OUTPUT);
-        // let _cs_2 = CdevPin::new(
-        //     chip.get_line(113).unwrap()
-        //         .request(LineRequestFlags::OUTPUT, 1, "imu-csn").unwrap()).unwrap();
         Delay {}.delay_ms(30_u32);
         cs_2.write(1)
             .expect("Error: Setting CS2 pin as output");
 
         //not using yet, define CS1 pin for MMC5983
         let cs_1 = Pin::new(11, jetgpio::JET_OUTPUT);
-        // let _cs_1 = CdevPin::new(
-        //     chip.get_line(112).unwrap()
-        //         .request(LineRequestFlags::OUTPUT, 1, "mag-csn").unwrap()).unwrap();
         Delay {}.delay_ms(30_u32);
         cs_1.write(1)
             .expect("Error: Setting CS2 pin as output");
 
         //Define pwm OE_Pin - PWM initialize disabled
-        // let oe_pin = CdevPin::new(
-        //     chip.get_line(43).unwrap()
-        //         .request(LineRequestFlags::OUTPUT, 1, "pwm-oe").unwrap()).unwrap();
         let oe_pin = Pin::new(33, jetgpio::JET_OUTPUT);
         Delay {}.delay_ms(30_u32);
         oe_pin.write(1)
@@ -379,9 +368,6 @@ impl NavigatorBuilder {
 
         let led = Led::new();
 
-        // let leak = CdevPin::new(
-        //     chip.get_line(50).unwrap()
-        //         .request(LineRequestFlags::INPUT, 0, "leak-input").unwrap()).unwrap();
         let leak = Pin::new(16, jetgpio::JET_INPUT);
 
         Navigator {
