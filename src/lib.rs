@@ -382,7 +382,7 @@ impl NavigatorBuilder {
         // let leak = CdevPin::new(
         //     chip.get_line(50).unwrap()
         //         .request(LineRequestFlags::INPUT, 0, "leak-input").unwrap()).unwrap();
-        let leak = Pin::new(12, jetgpio::JET_INPUT);
+        let leak = Pin::new(16, jetgpio::JET_INPUT);
 
         Navigator {
             adc: (adc),
