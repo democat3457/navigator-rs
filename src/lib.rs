@@ -1,4 +1,4 @@
-#![deny(unsafe_code)]
+// #![deny(unsafe_code)]
 #![doc(html_logo_url = "https://upload.wikimedia.org/wikipedia/commons/1/12/Bluerobotics-logo.svg")]
 #![doc = include_str!("../README.md")]
 
@@ -7,11 +7,12 @@ use ads1x1x::{
 };
 use ak09915_rs::{Ak09915, Mode as mag_Mode};
 use bmp280::{Bmp280, Bmp280Builder};
-use embedded_hal::{digital::InputPin, digital::OutputPin, delay::DelayNs};
+use embedded_hal::delay::DelayNs;
 // use icm20689::{self, AccelRange, Builder as imu_Builder, GyroRange, SpiInterface, ICM20689};
-use linux_embedded_hal::{gpio_cdev::{Chip, LineRequestFlags}, spidev::{self, SpidevOptions}};
+use jetgpio_sys as jetgpio;
+use linux_embedded_hal::spidev::{self, SpidevOptions};
 use linux_embedded_hal::I2cdev;
-use linux_embedded_hal::{Delay, CdevPin, SpidevDevice as Spidev};
+use linux_embedded_hal::{Delay, SpidevDevice as Spidev};
 use log::{info, warn};
 use nb::block;
 use pwm_pca9685::{Address as pwm_Address, Pca9685};
@@ -57,6 +58,46 @@ impl From<PwmChannel> for pwm_pca9685::Channel {
             PwmChannel::Ch16 => pwm_pca9685::Channel::C15,
             PwmChannel::All => pwm_pca9685::Channel::All,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Pin {
+    pin: u32,
+}
+
+impl Pin {
+    pub fn new(pin: u32, mode: u32) -> Pin {
+        let pin = Pin {
+            pin: pin,
+        };
+
+        pin.set_mode(mode).unwrap();
+        pin
+    }
+
+    pub fn read(&self) -> Result<u32, i32> {
+        let ret = unsafe { jetgpio::gpioRead(self.pin) };
+        if ret < 0 {
+            return Err(ret);
+        }
+        Ok(ret.try_into().unwrap())
+    }
+
+    pub fn write(&self, level: u32) -> Result<(), i32> {
+        let ret = unsafe { jetgpio::gpioWrite(self.pin, level) };
+        if ret < 0 {
+            return Err(ret);
+        }
+        Ok(())
+    }
+
+    pub fn set_mode(&self, mode: u32) -> Result<(), i32> {
+        let ret = unsafe { jetgpio::gpioSetMode(self.pin, mode) };
+        if ret < 0 {
+            return Err(ret);
+        }
+        Ok(())
     }
 }
 
@@ -142,9 +183,9 @@ pub struct SensorData {
 ///
 /// All this components were abstracted to be used directly from navigator module.
 pub struct Led {
-    first: CdevPin,
-    second: CdevPin,
-    third: CdevPin,
+    first: Pin,
+    second: Pin,
+    third: Pin,
 }
 
 /// The `Navigator` struct contains various components used for navigator. It includes PWM control,
@@ -162,7 +203,7 @@ pub struct Navigator {
     mag: Ak09915<I2cdev>,
     led: Led,
     neopixel: Strip,
-    leak: CdevPin,
+    leak: Pin,
 }
 
 impl Deref for Pwm {
@@ -187,7 +228,7 @@ pub struct Pwm {
     /// * `oe_pin`: The `oe_pin` component is a pin that is used to enable or disable the output of the PWM
     /// signal. It is connected to the Output Enable (OE) pin of the PCA9685 PWM controller.
     /// The default initialization of the navigator sets oe_pin to a digital high state, which disables the PCA9685's PWM.
-    oe_pin: CdevPin,
+    oe_pin: Pin,
 }
 
 /// Build pattern structure
@@ -203,47 +244,27 @@ impl Default for Led {
 
 impl Led {
     pub fn new() -> Led {
-        let mut chip = Chip::new("/dev/gpiochip0").unwrap();
-
-        let led = Led {
-            first: CdevPin::new(
-                chip.get_line(106).unwrap()
-                    .request(
-                        LineRequestFlags::OUTPUT,
-                        1,
-                        "led-first").unwrap()).unwrap(),
-            second: CdevPin::new(
-                chip.get_line(85).unwrap()
-                    .request(
-                        LineRequestFlags::OUTPUT,
-                        1,
-                        "led-second").unwrap()).unwrap(),
-            third: CdevPin::new(
-                chip.get_line(133).unwrap()
-                    .request(
-                        LineRequestFlags::OUTPUT,
-                        1,
-                        "led-third").unwrap()).unwrap(),
+        let mut led = Led {
+            first: Pin::new(31, jetgpio::JET_OUTPUT),
+            second: Pin::new(15, jetgpio::JET_OUTPUT),
+            third: Pin::new(23, jetgpio::JET_OUTPUT),
         };
 
-        // for pin in led.as_mut_array().iter_mut() {
-        //     // pin.export().expect("Error: Error during led pins export");
-        //     Delay {}.delay_ms(30_u32);
-        //     pin.set_high()
-        //         .expect("Error: Setting led pins as output");
-        // }
+        for pin in led.as_array().iter() {
+            pin.set_mode(1).expect("Error: Setting led pins as output");
+        }
         led
     }
 
-    pub fn as_mut_array(&mut self) -> [&mut CdevPin; 3] {
-        [&mut self.first, &mut self.second, &mut self.third]
+    pub fn as_array(&mut self) -> [Pin; 3] {
+        [self.first, self.second, self.third]
     }
 
-    pub fn select(&mut self, select: UserLed) -> &mut CdevPin {
+    pub fn select(&mut self, select: UserLed) -> Pin {
         match select {
-            UserLed::Led1 => &mut self.first,
-            UserLed::Led2 => &mut self.second,
-            UserLed::Led3 => &mut self.third,
+            UserLed::Led1 => self.first,
+            UserLed::Led2 => self.second,
+            UserLed::Led3 => self.third,
         }
     }
 
@@ -251,7 +272,7 @@ impl Led {
         let pin_struct = self.select(select);
 
         pin_struct
-            .get_value()
+            .read()
             .unwrap_or_else(|_| panic!("Error: Get {} LED value", select))
             == 0
     }
@@ -260,13 +281,13 @@ impl Led {
         let pin_struct = self.select(select);
 
         pin_struct
-            .set_value((!state).into())
+            .write((!state).into())
             .unwrap_or_else(|_| panic!("Error: Set {} LED value to {}", select, state));
     }
 
     pub fn set_led_all(&mut self, state: bool) {
-        for pin in self.as_mut_array().iter_mut() {
-            pin.set_value((!state).into())
+        for pin in self.as_array().iter() {
+            pin.write((!state).into())
                 .unwrap_or_else(|_| panic!("Error: Set LED value to {state}"));
         }
     }
@@ -323,43 +344,45 @@ impl NavigatorBuilder {
         spi.configure(&options)
             .expect("Error: Failed to configure SPI");
 
-        let mut chip = Chip::new("/dev/gpiochip0").unwrap();
+        // let mut chip = Chip::new("/dev/gpiochip0").unwrap();
+
+        unsafe { jetgpio::gpioInitialise() };
 
         //Define CS2 pin ICM-20602
-        let _cs_2 = CdevPin::new(
-            chip.get_line(113).unwrap()
-                .request(LineRequestFlags::OUTPUT, 1, "imu-csn").unwrap()).unwrap();
-        // cs_2.export().expect("Error: Error during CS2 export");
+        let cs_2 = Pin::new(36, jetgpio::JET_OUTPUT);
+        // let _cs_2 = CdevPin::new(
+        //     chip.get_line(113).unwrap()
+        //         .request(LineRequestFlags::OUTPUT, 1, "imu-csn").unwrap()).unwrap();
         Delay {}.delay_ms(30_u32);
-        // cs_2.set_high()
-        //     .expect("Error: Setting CS2 pin as output");
+        cs_2.write(1)
+            .expect("Error: Setting CS2 pin as output");
 
         //not using yet, define CS1 pin for MMC5983
-        let _cs_1 = CdevPin::new(
-            chip.get_line(112).unwrap()
-                .request(LineRequestFlags::OUTPUT, 1, "mag-csn").unwrap()).unwrap();
-        // cs_1.export().expect("Error: Error during CS1 export");
+        let cs_1 = Pin::new(11, jetgpio::JET_OUTPUT);
+        // let _cs_1 = CdevPin::new(
+        //     chip.get_line(112).unwrap()
+        //         .request(LineRequestFlags::OUTPUT, 1, "mag-csn").unwrap()).unwrap();
         Delay {}.delay_ms(30_u32);
-        // cs_1.set_direction(Direction::High)
-        //     .expect("Error: Setting CS2 pin as output");
+        cs_1.write(1)
+            .expect("Error: Setting CS2 pin as output");
 
         //Define pwm OE_Pin - PWM initialize disabled
-        let oe_pin = CdevPin::new(
-            chip.get_line(43).unwrap()
-                .request(LineRequestFlags::OUTPUT, 1, "pwm-oe").unwrap()).unwrap();
-        // oe_pin.export().expect("Error: Error during oe_pin export");
+        // let oe_pin = CdevPin::new(
+        //     chip.get_line(43).unwrap()
+        //         .request(LineRequestFlags::OUTPUT, 1, "pwm-oe").unwrap()).unwrap();
+        let oe_pin = Pin::new(33, jetgpio::JET_OUTPUT);
         Delay {}.delay_ms(30_u32);
-        // oe_pin
-        //     .set_direction(Direction::High)
-        //     .expect("Error: Setting oe_pin pin as output");
+        oe_pin.write(1)
+            .expect("Error: Setting oe_pin pin as output");
 
         // let imu = imu_Builder::new_spi(spi, cs_2);
 
         let led = Led::new();
 
-        let leak = CdevPin::new(
-            chip.get_line(50).unwrap()
-                .request(LineRequestFlags::INPUT, 0, "leak-input").unwrap()).unwrap();
+        // let leak = CdevPin::new(
+        //     chip.get_line(50).unwrap()
+        //         .request(LineRequestFlags::INPUT, 0, "leak-input").unwrap()).unwrap();
+        let leak = Pin::new(12, jetgpio::JET_INPUT);
 
         Navigator {
             adc: (adc),
@@ -383,6 +406,10 @@ impl Navigator {
         NavigatorBuilder {
             rgb_led_strip_size: 1, // There is only a single LED on the board
         }
+    }
+
+    pub fn drop(&mut self) {
+        unsafe { jetgpio::gpioTerminate() };
     }
 
     pub fn init(&mut self) {
@@ -444,9 +471,9 @@ impl Navigator {
     /// Please check [`set_pwm_channel_value`](struct.Navigator.html#method.set_pwm_channel_value).
     pub fn set_pwm_enable(&mut self, state: bool) {
         if state {
-            self.pwm.oe_pin.set_low().unwrap();
+            self.pwm.oe_pin.write(0).unwrap();
         } else {
-            self.pwm.oe_pin.set_high().unwrap();
+            self.pwm.oe_pin.write(1).unwrap();
         }
     }
 
@@ -474,7 +501,7 @@ impl Navigator {
     /// }
     /// ```
     pub fn get_pwm_enable(&mut self) -> bool {
-        self.pwm.oe_pin.get_value().expect("Error: Get PWM value") == 1
+        self.pwm.oe_pin.read().expect("Error: Get PWM value") == 1
     }
 
     /// Sets the Duty Cycle (high value time) of selected channel.
@@ -1129,9 +1156,8 @@ impl Navigator {
     /// }
     /// ```
     pub fn read_leak(&mut self) -> bool {
-        self.leak
-            .is_high()
-            .expect("Failed to read state of leak pin")
+        self.leak.read()
+            .expect("Failed to read state of leak pin") == 1
     }
 
     /// Reads all sensors and stores on a single structure.
